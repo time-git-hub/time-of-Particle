@@ -1,0 +1,778 @@
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>粒子形成文字</title>
+  <style>
+    body, canvas {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+<script>
+const WIDTH = window.innerWidth;
+const HEIGHT = window.innerHeight;
+
+const offscreenCanvas = document.createElement('canvas');
+const offscreenCtx = offscreenCanvas.getContext('2d');
+
+offscreenCanvas.width = WIDTH;
+offscreenCanvas.height = HEIGHT;
+
+offscreenCtx.font = '100px PingFang SC';
+offscreenCtx.textAlign = 'center';
+offscreenCtx.baseline = 'middle';
+offscreenCtx.fillText('TIME OF TIME', WIDTH / 2, HEIGHT / 2);
+
+
+const imgData = offscreenCtx.getImageData(0, 0, WIDTH, HEIGHT).data;
+
+// 在全局作用域中定义星星数组
+const stars = [];
+
+// 初始化星星位置和属性
+function initStars() {
+    for (let layer = 0; layer < 3; layer++) {
+        const starCount = layer === 0 ? 100 : layer === 1 ? 85 : 65;
+        const maxRadius = layer === 0 ? 0.5 : layer === 1 ? 0.8 : 1.2;
+        const maxOpacity = layer === 0 ? 0.5 : layer === 1 ? 0.7 : 1;
+        
+        for (let i = 0; i < starCount; i++) {
+            stars.push({
+                x: Math.random() * WIDTH,
+                y: Math.random() * HEIGHT,
+                radius: Math.random() * maxRadius,
+                baseOpacity: 0.2 + Math.random() * maxOpacity,
+                opacity: 0.2 + Math.random() * maxOpacity,
+                layer,
+                twinkleSpeed: 0.02 + Math.random() * 0.03,
+                phase: Math.random() * Math.PI * 2
+            });
+        }
+    }
+}
+
+// 更新星星的闪烁效果
+function updateStars() {
+    for (const star of stars) {
+        star.phase += star.twinkleSpeed;
+        star.opacity = star.baseOpacity * (0.5 + 0.5 * Math.sin(star.phase));
+    }
+}
+
+
+function drawStarryBackground(ctx) {
+    
+    const gradient = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    gradient.addColorStop(0, '#0B0B3B');
+    gradient.addColorStop(0.5, '#0A0A2A');
+    gradient.addColorStop(1, '#000033');
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    
+    
+    for (const star of stars) {
+        // 星星的光晕效果
+        const glow = ctx.createRadialGradient(
+            star.x, star.y, 0,
+            star.x, star.y, star.radius * 4
+        );
+        glow.addColorStop(0, `rgba(255, 255, 255, ${star.opacity})`);
+        glow.addColorStop(0.4, `rgba(255, 255, 255, ${star.opacity * 0.4})`);
+        glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        
+        ctx.beginPath();
+        ctx.fillStyle = glow;
+        ctx.arc(star.x, star.y, star.radius * 4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 星星的核心
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`;
+        ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+class Particle {
+    constructor (options = {}) {
+        const { x = 0, y = 0, color = '#fff', radius = 5} = options;
+        this.radius = radius;
+        this.x = x;
+        this.y = y;
+        this.targetX = x;
+        this.targetY = y;
+        this.currentX = Math.random() * (WIDTH * 1.2) - WIDTH * 0.1;
+        this.currentY = Math.random() * (HEIGHT * 1.2) - HEIGHT * 0.1;
+        this.color = color;
+        this.baseRadius = radius;
+        this.dynamicRadius = radius;
+        this.vx = 0;
+        this.vy = 0;
+        this.friction = 0.95;
+        this.springFactor = 0.08;
+        this.phase = Math.random() * Math.PI * 2;
+        this.speed = 0.02 + Math.random() * 0.02;
+        this.opacity = Math.random();
+        this.isBackgroundParticle = options.isBackgroundParticle || false;
+        this.disperseTarget = {
+            x: Math.random() * WIDTH,
+            y: Math.random() * HEIGHT
+        };
+        this.isDispersing = false;
+        this.maxSpeed = 20;
+    }
+
+    startDisperse() {
+        this.isDispersing = true;
+        // 设置新的随机目标位置，范围更大一些
+        this.disperseTarget = {
+            x: Math.random() * (WIDTH * 1.2) - WIDTH * 0.1,
+            y: Math.random() * (HEIGHT * 1.2) - HEIGHT * 0.1
+        };
+        // 调整粒子属性
+        this.radius = 0.2 + Math.random() * 0.6;
+        this.baseRadius = this.radius;
+        // 重置速度
+        this.vx = 0;
+        this.vy = 0;
+    }
+
+    update() {
+        if (this.isDispersing) {
+            const dx = this.disperseTarget.x - this.currentX;
+            const dy = this.disperseTarget.y - this.currentY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 1) {
+                this.vx += dx * this.springFactor;
+                this.vy += dy * this.springFactor;
+            }
+        } else {
+            const dx = this.targetX - this.currentX;
+            const dy = this.targetY - this.currentY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 0.1) {
+                const factor = this.springFactor / (1 + distance * 0.01);
+                this.vx += dx * factor;
+                this.vy += dy * factor;
+            } else {
+                this.currentX = this.targetX;
+                this.currentY = this.targetY;
+                this.vx = 0;
+                this.vy = 0;
+            }
+        }
+
+        this.vx *= this.friction;
+        this.vy *= this.friction;
+        
+        const currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        if (currentSpeed > this.maxSpeed) {
+            const scale = this.maxSpeed / currentSpeed;
+            this.vx *= scale;
+            this.vy *= scale;
+        }
+        
+        this.currentX += this.vx;
+        this.currentY += this.vy;
+    }
+
+    draw(ctx) {
+        const gradient = ctx.createRadialGradient(
+            this.currentX, this.currentY, 0,
+            this.currentX, this.currentY, this.dynamicRadius * 2
+        );
+        
+        
+        gradient.addColorStop(0, `rgba(255, 255, 255, ${this.opacity})`);
+        gradient.addColorStop(0.3, `rgba(100, 150, 255, ${this.opacity * 0.7})`);
+        gradient.addColorStop(0.7, `rgba(70, 131, 255, ${this.opacity * 0.3})`);
+        gradient.addColorStop(1, 'rgba(70, 131, 255, 0)');
+        
+        ctx.beginPath();
+        ctx.fillStyle = gradient;
+        ctx.arc(this.currentX, this.currentY, this.dynamicRadius * 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        
+        const innerGlow = ctx.createRadialGradient(
+            this.currentX, this.currentY, 0,
+            this.currentX, this.currentY, this.dynamicRadius * 0.5
+        );
+        
+        innerGlow.addColorStop(0, `rgba(255, 255, 255, ${this.opacity * 1.2})`);
+        innerGlow.addColorStop(0.5, `rgba(200, 220, 255, ${this.opacity * 0.8})`);
+        innerGlow.addColorStop(1, `rgba(100, 150, 255, ${this.opacity * 0.2})`);
+        
+        ctx.beginPath();
+        ctx.fillStyle = innerGlow;
+        ctx.arc(this.currentX, this.currentY, this.dynamicRadius * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    checkCollision(other) {
+        const dx = this.currentX - other.currentX;
+        const dy = this.currentY - other.currentY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const minDistance = (this.radius + other.radius) * 2; 
+        
+        return distance < minDistance;
+    }
+}
+
+const particles = [];
+const textParticles = [];
+const skip = 4;
+
+for (var y = 0; y < HEIGHT; y += skip) {
+    for (var x = 0; x < WIDTH; x += skip) {
+        var opacityIndex = (x + y * WIDTH) * 4 + 3;
+        if (imgData[opacityIndex] > 0) {
+            textParticles.push({
+                x,
+                y,
+                radius: 1.5,
+                color: '#4683FF'
+            });
+        }
+    }
+}
+
+let lastTime = 0;
+let particleCount = 0;
+const BACKGROUND_PARTICLE_COUNT = 150;
+const PARTICLE_ADD_RATE = 2;
+let textParticleIndex = 0;
+let phase = 'background';
+
+
+const AnimationState = {
+    BACKGROUND: 'background',
+    TEXT: 'text',
+    TEXT_FORMING: 'text_forming',
+    WAITING: 'waiting',
+    DISPERSING: 'dispersing'
+};
+
+let currentState = AnimationState.BACKGROUND;
+let waitStartTime = 0;
+const WAIT_DURATION = 2000;
+
+
+function isTextFullyFormed() {
+    const textParticles = particles.filter(p => !p.isBackgroundParticle);
+    let formedCount = 0;
+    const threshold = 0.1;
+    
+    for (const particle of textParticles) {
+        const dx = particle.currentX - particle.targetX;
+        const dy = particle.currentY - particle.targetY;
+        if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) {
+            formedCount++;
+        }
+    }
+    
+    return formedCount >= textParticles.length * 0.95;
+}
+
+// 开始扩散效果
+function startDisperse() {
+    // 保留部分文字粒子
+    const textParticles = particles.filter(p => !p.isBackgroundParticle);
+    const backgroundParticles = particles.filter(p => p.isBackgroundParticle);
+    
+   
+    const particlesToKeep = 100; 
+    const keptParticles = textParticles
+        .sort(() => Math.random() - 0.5)
+        .slice(0, particlesToKeep);
+    
+   
+    particles.length = 0;
+    particles.push(...backgroundParticles);
+    particles.push(...keptParticles);
+    
+    // 触发扩散
+    for (const particle of keptParticles) {
+        particle.startDisperse();
+    }
+}
+
+
+function addParticles(time) {
+    if (currentState === AnimationState.BACKGROUND && particles.length < BACKGROUND_PARTICLE_COUNT) {
+        for (let i = 0; i < PARTICLE_ADD_RATE && particles.length < BACKGROUND_PARTICLE_COUNT; i++) {
+            particles.push(new Particle({
+                x: Math.random() * WIDTH,
+                y: Math.random() * HEIGHT,
+                radius: 0.2 + Math.random() * 0.6,
+                color: '#fff',
+                isBackgroundParticle: true
+            }));
+        }
+        
+        if (particles.length >= BACKGROUND_PARTICLE_COUNT) {
+            currentState = AnimationState.TEXT;
+            lastTime = time;
+            textParticles.sort(() => Math.random() - 0.5);
+        }
+    } else if (currentState === AnimationState.TEXT && textParticleIndex < textParticles.length) {
+        const particlesToAdd = Math.min(
+            20,
+            Math.ceil((time - lastTime) / 16)
+        );
+        
+        for (let i = 0; i < particlesToAdd && textParticleIndex < textParticles.length; i++) {
+            const particle = textParticles[textParticleIndex++];
+            particles.push(new Particle({
+                ...particle,
+                radius: 0.8 + Math.random() * 1,
+                isBackgroundParticle: false
+            }));
+        }
+        
+        
+        if (textParticleIndex >= textParticles.length) {
+            currentState = AnimationState.TEXT_FORMING;
+        }
+    }
+}
+
+const canvas = document.querySelector('#stage');
+canvas.width = WIDTH;
+canvas.height = HEIGHT;
+const ctx = canvas.getContext('2d', {
+    alpha: false  
+});
+
+class GlowingOrb {
+    constructor() {
+        this.reset();
+        this.progress = Math.random();
+    }
+
+    reset() {
+        // 随机起始位置
+        const startPosition = Math.random();
+        if (startPosition < 0.25) {
+            // 从左侧进入
+            this.x = -20;
+            this.y = Math.random() * HEIGHT;
+            this.moveAngle = -Math.PI / 8 + Math.random() * (Math.PI / 4); // 向右上方移动
+        } else if (startPosition < 0.5) {
+            // 从右侧进入
+            this.x = WIDTH + 20;
+            this.y = Math.random() * HEIGHT;
+            this.moveAngle = Math.PI - Math.PI / 8 + Math.random() * (Math.PI / 4); // 向左上方移动
+        } else if (startPosition < 0.75) {
+            // 从底部进入
+            this.x = Math.random() * WIDTH;
+            this.y = HEIGHT + 20;
+            this.moveAngle = -Math.PI/2 - Math.PI/8 + Math.random() * (Math.PI/4); // 向上方移动
+        } else {
+            // 从顶部进入
+            this.x = Math.random() * WIDTH;
+            this.y = -20;
+            this.moveAngle = Math.PI/2 - Math.PI/8 + Math.random() * (Math.PI/4); // 向下方移动
+        }
+
+        this.speed = 0.3 + Math.random() * 0.4; // 降低速度
+        this.size = 0.8 + Math.random() * 1.2;
+        this.opacity = 0.2 + Math.random() * 0.3;
+        
+        // 更柔和的随机颜色变化
+        const baseColor = Math.random();
+        if (baseColor < 0.33) {
+            // 柔和的蓝色系
+            this.color = {
+                r: 180 + Math.random() * 30,
+                g: 220 + Math.random() * 20,
+                b: 255
+            };
+        } else if (baseColor < 0.66) {
+            // 柔和的紫色系
+            this.color = {
+                r: 200 + Math.random() * 30,
+                g: 180 + Math.random() * 20,
+                b: 255
+            };
+        } else {
+            // 柔和的青色系
+            this.color = {
+                r: 180 + Math.random() * 20,
+                g: 230 + Math.random() * 25,
+                b: 255
+            };
+        }
+        
+        // 更细微的浮动
+        this.floatAngle = Math.random() * Math.PI * 2;
+        this.floatSpeed = 0.005 + Math.random() * 0.008;
+        this.floatRange = 10 + Math.random() * 15;
+        
+        // 更缓慢的脉动
+        this.pulseAngle = Math.random() * Math.PI * 2;
+        this.pulseSpeed = 0.02 + Math.random() * 0.01;
+        
+        // 延迟参数
+        this.delay = Math.random() * 200;
+        this.active = false;
+        this.waitFrames = this.delay;
+    }
+
+    update() {
+        if (!this.active) {
+            if (this.waitFrames > 0) {
+                this.waitFrames--;
+                return;
+            }
+            this.active = true;
+        }
+
+        // 根据角度移动
+        this.x += Math.cos(this.moveAngle) * this.speed;
+        this.y += Math.sin(this.moveAngle) * this.speed;
+        
+        // 添加轻微的浮动效果
+        this.floatAngle += this.floatSpeed;
+        this.x += Math.sin(this.floatAngle) * 0.2;
+        this.y += Math.cos(this.floatAngle) * 0.2;
+        
+        this.pulseAngle += this.pulseSpeed;
+        
+        // 检查是否超出屏幕范围
+        if (this.x < -20 || this.x > WIDTH + 20 || 
+            this.y < -20 || this.y > HEIGHT + 20) {
+            this.reset();
+            this.waitFrames = 100 + Math.random() * 200;
+            this.active = false;
+        }
+    }
+
+    draw(ctx) {
+        if (!this.active) return;
+        
+        const pulseScale = 1 + 0.15 * Math.sin(this.pulseAngle);
+        const currentSize = this.size * pulseScale;
+        
+        const { r, g, b } = this.color;
+        
+        // 主光晕
+        const mainGlow = ctx.createRadialGradient(
+            this.x, this.y, 0,
+            this.x, this.y, currentSize * 4
+        );
+        
+        mainGlow.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${this.opacity})`);
+        mainGlow.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.6})`);
+        mainGlow.addColorStop(0.7, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.2})`);
+        mainGlow.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+        
+        ctx.beginPath();
+        ctx.fillStyle = mainGlow;
+        ctx.arc(this.x, this.y, currentSize * 4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 核心
+        const coreGlow = ctx.createRadialGradient(
+            this.x, this.y, 0,
+            this.x, this.y, currentSize
+        );
+        
+        coreGlow.addColorStop(0, `rgba(255, 255, 255, ${this.opacity * 1.2})`);
+        coreGlow.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${this.opacity})`);
+        coreGlow.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.1})`);
+        
+        ctx.beginPath();
+        ctx.fillStyle = coreGlow;
+        ctx.arc(this.x, this.y, currentSize, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+// 增加光点数量
+const glowingOrbs = Array(8).fill(null).map(() => new GlowingOrb());
+
+// 确保在页面加载完成后再开始动画
+window.addEventListener('load', () => {
+    initStars();
+    drawStarryBackground(ctx);
+    requestAnimationFrame(animate);
+});
+
+// 添加爆炸效果类
+class Explosion {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.particles = [];
+        this.lifetime = 0;
+        this.maxLifetime = 180; // 增加持续时间
+        
+        // 创建爆炸粒子
+        const particleCount = 100; // 增加粒子数量
+        const baseRadius = 5; // 初始爆炸半径
+        
+        for (let i = 0; i < particleCount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = baseRadius + Math.random() * 5;
+            const speed = 0.2 + Math.random() * 0.3; // 降低速度使扩散更缓慢
+            
+            this.particles.push({
+                x: this.x + Math.cos(angle) * radius,
+                y: this.y + Math.sin(angle) * radius,
+                startX: this.x,
+                startY: this.y,
+                angle: angle,
+                speed: speed,
+                radius: radius,
+                size: 0.5 + Math.random() * 1,
+                alpha: 0.7 + Math.random() * 0.3,
+                color: Math.random() < 0.7 ? '#FFF' : '#4683FF',
+                upwardForce: 0.2 + Math.random() * 0.3, // 向上的力
+                expansionRate: 1.01 + Math.random() * 0.01 // 扩张率
+            });
+        }
+    }
+
+    update() {
+        this.lifetime++;
+        const progress = this.lifetime / this.maxLifetime;
+        
+        for (let particle of this.particles) {
+            // 计算当前半径
+            particle.radius *= particle.expansionRate;
+            
+            // 更新位置，使用极坐标实现扩散效果
+            particle.x = particle.startX + Math.cos(particle.angle) * particle.radius;
+            particle.y = particle.startY + Math.sin(particle.angle) * particle.radius;
+            
+            // 添加向上的漂移
+            particle.y -= particle.upwardForce;
+            particle.upwardForce *= 0.99; // 逐渐减小向上的力
+            
+            // 更新透明度
+            if (progress < 0.3) {
+                particle.alpha = Math.min(1, progress * 3);
+            } else {
+                particle.alpha = Math.max(0, 1 - ((progress - 0.3) / 0.7));
+            }
+            
+            // 粒子尺寸随时间变化
+            particle.size *= 0.995;
+        }
+    }
+
+    draw(ctx) {
+        for (let particle of this.particles) {
+            const gradient = ctx.createRadialGradient(
+                particle.x, particle.y, 0,
+                particle.x, particle.y, particle.size * 3
+            );
+            
+            gradient.addColorStop(0, `${particle.color.replace(')', `, ${particle.alpha})`)}`);
+            gradient.addColorStop(0.5, `${particle.color.replace(')', `, ${particle.alpha * 0.5})`)}`);
+            gradient.addColorStop(1, `${particle.color.replace(')', `, 0)`)}`);
+            
+            ctx.beginPath();
+            ctx.fillStyle = gradient;
+            ctx.arc(particle.x, particle.y, particle.size * 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    isFinished() {
+        return this.lifetime >= this.maxLifetime;
+    }
+}
+
+// 添加爆炸管理数组
+const explosions = [];
+
+// 添加随机爆炸生成函数
+function addRandomExplosion() {
+    if (Math.random() < 0.003) { // 降低爆炸频率
+        const x = Math.random() * WIDTH;
+        const y = Math.random() * HEIGHT;
+        explosions.push(new Explosion(x, y));
+    }
+}
+
+// 添加闪电效果类
+class Lightning {
+    constructor(start, end) {
+        this.start = start;
+        this.end = end;
+        this.lifetime = 20; // 闪电持续时间
+        this.segments = this.generateSegments();
+        this.alpha = 0.8;
+    }
+
+    generateSegments() {
+        const segments = [];
+        let current = { x: this.start.x, y: this.start.y };
+        const dx = this.end.x - this.start.x;
+        const dy = this.end.y - this.start.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const steps = Math.ceil(distance / 10); // 每10像素一个分段
+        
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const point = {
+                x: this.start.x + dx * t + (Math.random() - 0.5) * 20,
+                y: this.start.y + dy * t + (Math.random() - 0.5) * 20
+            };
+            if (i > 0) {
+                segments.push({
+                    start: current,
+                    end: point
+                });
+            }
+            current = point;
+        }
+        return segments;
+    }
+
+    update() {
+        this.lifetime--;
+        this.alpha *= 0.9;
+    }
+
+    draw(ctx) {
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(100, 181, 255, ${this.alpha})`;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = 'rgba(100, 181, 255, 0.8)';
+        ctx.shadowBlur = 15;
+        
+        for (const segment of this.segments) {
+            ctx.moveTo(segment.start.x, segment.start.y);
+            ctx.lineTo(segment.end.x, segment.end.y);
+        }
+        
+        ctx.stroke();
+        
+        // 添加发光核心
+        for (const segment of this.segments) {
+            const gradient = ctx.createLinearGradient(
+                segment.start.x, segment.start.y,
+                segment.end.x, segment.end.y
+            );
+            
+            gradient.addColorStop(0, `rgba(255, 255, 255, ${this.alpha * 0.5})`);
+            gradient.addColorStop(0.5, `rgba(100, 181, 255, ${this.alpha * 0.3})`);
+            gradient.addColorStop(1, `rgba(255, 255, 255, ${this.alpha * 0.5})`);
+            
+            ctx.strokeStyle = gradient;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+    }
+
+    isFinished() {
+        return this.lifetime <= 0;
+    }
+}
+
+// 添加闪电数组
+const lightnings = [];
+
+// 修改动画循环
+function animate(time) {
+    const deltaTime = time - (animate.lastTime || 0);
+    animate.lastTime = time;
+    
+    if (deltaTime > 32) {
+        requestAnimationFrame(animate);
+        return;
+    }
+    
+    ctx.save();
+    drawStarryBackground(ctx);
+    updateStars();
+    
+    switch (currentState) {
+        case AnimationState.BACKGROUND:
+        case AnimationState.TEXT:
+            addParticles(time);
+            if (currentState === AnimationState.TEXT && 
+                textParticleIndex >= textParticles.length) {
+                currentState = AnimationState.TEXT_FORMING;
+            }
+            break;
+            
+        case AnimationState.TEXT_FORMING:
+            if (isTextFullyFormed()) {
+                currentState = AnimationState.WAITING;
+                waitStartTime = time;
+            }
+            break;
+            
+        case AnimationState.WAITING:
+            if (time - waitStartTime >= WAIT_DURATION) {
+                currentState = AnimationState.DISPERSING;
+                startDisperse();
+            }
+            break;
+    }
+    
+    // 更新和绘制闪电效果
+    for (let i = lightnings.length - 1; i >= 0; i--) {
+        lightnings[i].update();
+        lightnings[i].draw(ctx);
+        if (lightnings[i].isFinished()) {
+            lightnings.splice(i, 1);
+        }
+    }
+    
+    // 碰撞检测（仅对背景粒子）
+    const backgroundParticles = particles.filter(p => p.isBackgroundParticle);
+    const len = backgroundParticles.length;
+    
+    const maxChecks = 100;
+    for (let i = 0; i < Math.min(len, maxChecks); i++) {
+        const randomIndex = Math.floor(Math.random() * len);
+        const particle = backgroundParticles[randomIndex];
+        
+        for (let j = 0; j < len; j++) {
+            if (j === randomIndex) continue;
+            
+            if (particle.checkCollision(backgroundParticles[j])) {
+                lightnings.push(new Lightning(
+                    {x: particle.currentX, y: particle.currentY},
+                    {x: backgroundParticles[j].currentX, y: backgroundParticles[j].currentY}
+                ));
+                break;
+            }
+        }
+    }
+    
+    
+    for (const particle of particles) {
+        particle.update();
+        particle.draw(ctx);
+    }
+    
+    for (const orb of glowingOrbs) {
+        orb.update();
+        orb.draw(ctx);
+    }
+    
+    ctx.restore();
+    requestAnimationFrame(animate);
+}
+
+
+</script>
+</body>
+</html>
